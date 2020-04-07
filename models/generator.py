@@ -43,11 +43,11 @@ class TOYGenerator(nn.Module):
             return layers
         
         self.model = nn.Sequential(
-            *block(in_channel + n_classes, 16, normalize=False),
-            *block(16, 32),
-            *block(32, 32),
-            *block(32, 16),
-            nn.Linear(16, int(np.prod(img_shape))),
+            *block(in_channel + n_classes, 128, normalize=False),
+            *block(128, 256),
+            *block(256, 512),
+            *block(512, 1024),
+            nn.Linear(1024, int(np.prod(img_shape))),
             # nn.Tanh()
         )
         
