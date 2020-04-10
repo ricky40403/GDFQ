@@ -37,9 +37,9 @@ class output_hook(object):
     def clear(self):
         self.outputs = None
 
-
+# the training setting
 test_data_size = 500
-test_batch_size = 10
+test_batch_size = 50
 test_epoch = 500
 
 # generate 500 data
@@ -48,9 +48,10 @@ noisey = np.random.uniform(-4, 4, test_data_size)
 GTdata = list(zip(noisex, noisey))
 label = ((noisex * noisey) > 0) * 1
 plt.figure()
-# plt.subplot(1, 4, 1)
+plt.subplot(2, 2, 1)
+plt.title("real_data")
 plt.scatter(noisex, noisey, s=50, c=label, alpha=.5)
-plt.savefig('real_data.png')
+# plt.savefig('real_data.png')
 # exit()
 
 
@@ -75,7 +76,7 @@ LongTensor = torch.cuda.LongTensor
 
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.SGD(FP_Model.parameters(), lr = 0.01, weight_decay=0.0001, momentum = 0.9)
-
+scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=(test_epoch//3))
 # train FP model first
 toy_dataset = data.TensorDataset(FloatTensor(GTdata), FloatTensor(label))
 toy_dataloader = data.DataLoader(toy_dataset, batch_size = 10, shuffle = True)
@@ -84,7 +85,7 @@ FP_Model.cuda()
 FP_Model.train()
 # train 100 epoch
 print("Train FP model")
-for _ in tqdm.tqdm(range(50), position = 0, leave=True):
+for _ in tqdm.tqdm(range(test_epoch), position = 0, leave=True):
     for (input_data, input_label) in toy_dataloader:
         
         input_data = input_data.cuda()
@@ -102,14 +103,15 @@ for _ in tqdm.tqdm(range(50), position = 0, leave=True):
 # gaussian_noisex = truncnorm(a = -4, b = 4).rvs(size=500)
 # gaussian_noisey = truncnorm(a = -4, b = 4).rvs(size=500)
 gaussian_noise =  np.random.normal(0, 1, (test_data_size, 2))
-# gaussian_label =  np.random.uniform(0, 1, test_data_size) > 0.5
-gaussian_label = np.random.randint(0, 1, size = test_data_size)
-plt.figure()
-# plt.subplot(1, 4, 2)
-plt.scatter(gaussian_noise[:, 0], gaussian_noise[:, 1], s=50, c=label, alpha=.5)
+gaussian_label =  np.random.uniform(0, 1, test_data_size) > 0.5
+# gaussian_label = np.random.randint(0, 1, size = test_data_size)
+# plt.figure()
+plt.subplot(2, 2, 2)
+plt.scatter(gaussian_noise[:, 0], gaussian_noise[:, 1], s=50, c=gaussian_label, alpha=.5)
 plt.xlim(-4,4)
 plt.ylim(-4,4)
-plt.savefig('gaussian.png')
+plt.title("gaussian")
+# plt.savefig('gaussian.png')
 
 
 
@@ -156,11 +158,13 @@ for idx, (input_data, input_label) in enumerate(toy_dataloader):
     input_data.requires_grad = True    
     FP_Model.zero_grad()
     crit = nn.CrossEntropyLoss().cuda()
-    optimizer = optim.Adam([input_data], lr = 0.01)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer,
-                                                        min_lr=1e-4,
-                                                        verbose=False,
-                                                        patience=100)
+    optimizer = torch.optim.SGD([input_data], lr=0.1, momentum=0.9)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=(test_epoch//3))
+    # optimizer = optim.Adam([input_data], lr = 0.01)
+    # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer,
+    #                                                     min_lr=1e-4,
+    #                                                     verbose=False,
+    #                                                     patience=100)
     
     input_mean = torch.FloatTensor([0.0]).cuda()
     input_std = torch.FloatTensor([1.0]).cuda()
@@ -209,13 +213,16 @@ for idx, (input_data, input_label) in enumerate(toy_dataloader):
 for handle in hook_handles:
     handle.remove()
 
+print(zeroQ_gaussian_label)
 # gather to x, y
 zeroQ_x, zeroQ_y = list(zip(*zeroQ_gaussian_data))
-plt.figure()
+# plt.figure()
+plt.subplot(2, 2, 3)
 plt.scatter(list(zeroQ_x), list(zeroQ_y), s = 50, c = zeroQ_gaussian_label, alpha = .5)
 plt.xlim(-4, 4)
 plt.ylim(-4, 4)
-plt.savefig('zeroQ.png')
+plt.title("zeroQ")
+# plt.savefig('zeroQ.png')
 # exit()
 
 print("Train Genrative data")
@@ -225,13 +232,13 @@ toy_g = TOYGenerator(n_classes = 2, in_channel = 2, img_shape = im_shape)
 toy_g.train()
 toy_g = toy_g.cuda()
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(toy_g.parameters(), lr = 0.01)
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer,
-                                                    min_lr=1e-4,
-                                                    verbose=False,
-                                                    patience=100)
-
-
+optimizer = torch.optim.SGD(toy_g.parameters(), lr=0.1, momentum=0.9)
+scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=(test_epoch//3))
+# optimizer = optim.Adam(toy_g.parameters(), lr = 0.01)
+# scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer,
+#                                                     min_lr=1e-4,
+#                                                     verbose=False,
+#                                                     patience=100)
 
 print("Generator warm up")
 
@@ -260,15 +267,17 @@ assert len(hooks) == len(bn_stats)
 for hook in hooks:
     hook.clear()
 
-FP_Model.zero_grad()
-# set same iteration as zeroQ
-for _ in tqdm.tqdm(range(test_epoch * (test_data_size//test_batch_size))):
 
+# set same iteration as zeroQ
+for _ in tqdm.tqdm(range(test_epoch * (test_data_size//test_batch_size))):    
+
+    FP_Model.zero_grad()
     optimizer.zero_grad()
 
     gaussian_noise =  np.random.normal(0, 1, (test_batch_size, 2))    
+    gaussian_label =  np.random.uniform(0, 1, test_batch_size) > 0.5
     # randint is discrete uniform    
-    gaussian_label = np.random.randint(0, 1, size = test_batch_size)
+    # gaussian_label = np.random.randint(0, 1, size = test_batch_size)
     
 
     input_mean = torch.FloatTensor([0.0]).cuda()
@@ -322,7 +331,8 @@ for _ in tqdm.tqdm(range(test_epoch * (test_data_size//test_batch_size))):
 # gaussian_label =  np.random.uniform(0, 1, 500) > 0.5
 
 gaussian_noise =  np.random.normal(0, 1, (test_data_size, 2))    
-gaussian_label = np.random.randint(0, 1, size = test_data_size)  
+gaussian_label =  np.random.uniform(0, 1, test_data_size) > 0.5
+# gaussian_label = np.random.randint(0, 1, size = test_data_size)  
 toy_g.eval()
 test_inputs = FloatTensor(gaussian_noise)
 test_labels = FloatTensor(gaussian_label)
@@ -336,11 +346,13 @@ for idx, test_d in enumerate(test_inputs):
     # print(fake_data.tolist()[0])
     fake_data_list.append(fake_data.tolist()[0])
 
-
+print(fake_data_list)
 fake_x, fake_y = zip(*fake_data_list)
-plt.figure()
+# plt.figure()
+plt.subplot(2, 2, 4)
 plt.scatter(list(fake_x), list(fake_y), s = 50, c = gaussian_label, alpha = .5)
 plt.xlim(-4, 4)
 plt.ylim(-4, 4)
-plt.savefig('fake.png')
+plt.title("Fake data")
+plt.savefig('toy.png')
 
