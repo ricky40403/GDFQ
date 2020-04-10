@@ -14,6 +14,14 @@ import torch.optim as optim
 
 import random
 
+##############################################################
+# Toy sample configuration
+##############################################################
+# the training setting
+test_data_size = 500
+test_batch_size = 50
+warm_up_epoch = 10
+test_epoch = 500
 
 def own_loss(A, B):
     """
@@ -37,11 +45,11 @@ class output_hook(object):
     def clear(self):
         self.outputs = None
 
-# the training setting
-test_data_size = 500
-test_batch_size = 50
-test_epoch = 500
 
+
+##############################################################
+# Real Data to train FP model
+##############################################################
 # generate 500 data
 noisex = np.random.uniform(-4, 4, test_data_size)
 noisey = np.random.uniform(-4, 4, test_data_size)
@@ -51,10 +59,11 @@ plt.figure()
 plt.subplot(2, 2, 1)
 plt.title("real_data")
 plt.scatter(noisex, noisey, s=50, c=label, alpha=.5)
-# plt.savefig('real_data.png')
-# exit()
 
 
+##############################################################
+# FP Model Part
+##############################################################
 # train fp model first
 FP_Model = nn.Sequential(
     nn.Linear(2, 128),
@@ -83,7 +92,6 @@ toy_dataloader = data.DataLoader(toy_dataset, batch_size = 10, shuffle = True)
 
 FP_Model.cuda()
 FP_Model.train()
-# train 100 epoch
 print("Train FP model")
 for _ in tqdm.tqdm(range(test_epoch), position = 0, leave=True):
     for (input_data, input_label) in toy_dataloader:
@@ -99,29 +107,30 @@ for _ in tqdm.tqdm(range(test_epoch), position = 0, leave=True):
 
 
     
+##############################################################
+# Gaussian Test data Part
+##############################################################
 # generate noise data 
-# gaussian_noisex = truncnorm(a = -4, b = 4).rvs(size=500)
-# gaussian_noisey = truncnorm(a = -4, b = 4).rvs(size=500)
-gaussian_noise =  np.random.normal(0, 1, (test_data_size, 2))
-gaussian_label =  np.random.uniform(0, 1, test_data_size) > 0.5
-# gaussian_label = np.random.randint(0, 1, size = test_data_size)
-# plt.figure()
+test_gaussian_noise =  np.random.normal(0, 1, (test_data_size, 2))
+test_gaussian_label =  np.random.uniform(0, 1, test_data_size) > 0.5
 plt.subplot(2, 2, 2)
-plt.scatter(gaussian_noise[:, 0], gaussian_noise[:, 1], s=50, c=gaussian_label, alpha=.5)
+print(test_gaussian_noise.shape)
+print(test_gaussian_label.shape)
+plt.scatter(test_gaussian_noise[:, 0], test_gaussian_noise[:, 1], s=50, c=test_gaussian_label, alpha=.5)
 plt.xlim(-4,4)
 plt.ylim(-4,4)
 plt.title("gaussian")
-# plt.savefig('gaussian.png')
 
 
-
-
-gaussian_input_data = list(gaussian_noise)
-random.shuffle(gaussian_input_data)
-
-toy_dataset = data.TensorDataset(FloatTensor(gaussian_input_data), LongTensor(gaussian_label))
+##############################################################
+# ZeroQ Part
+##############################################################
+# use copy to prevent modification (Normally it will not be modified)
+zeroQ_gaussian_input_data = list(test_gaussian_noise).copy()
+zeroQ_gaussian_input_label = test_gaussian_label.copy()
+random.shuffle(zeroQ_gaussian_input_data)
+toy_dataset = data.TensorDataset(FloatTensor(zeroQ_gaussian_input_data), LongTensor(test_gaussian_label))
 toy_dataloader = data.DataLoader(toy_dataset, batch_size = test_batch_size, shuffle = True)
-
 
 print("ZeroQ training...")
 # zero Q does not need input_label
@@ -160,11 +169,6 @@ for idx, (input_data, input_label) in enumerate(toy_dataloader):
     crit = nn.CrossEntropyLoss().cuda()
     optimizer = torch.optim.SGD([input_data], lr=0.1, momentum=0.9)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=(test_epoch//3))
-    # optimizer = optim.Adam([input_data], lr = 0.01)
-    # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer,
-    #                                                     min_lr=1e-4,
-    #                                                     verbose=False,
-    #                                                     patience=100)
     
     input_mean = torch.FloatTensor([0.0]).cuda()
     input_std = torch.FloatTensor([1.0]).cuda()
@@ -213,35 +217,60 @@ for idx, (input_data, input_label) in enumerate(toy_dataloader):
 for handle in hook_handles:
     handle.remove()
 
-print(zeroQ_gaussian_label)
-# gather to x, y
+
 zeroQ_x, zeroQ_y = list(zip(*zeroQ_gaussian_data))
-# plt.figure()
 plt.subplot(2, 2, 3)
 plt.scatter(list(zeroQ_x), list(zeroQ_y), s = 50, c = zeroQ_gaussian_label, alpha = .5)
 plt.xlim(-4, 4)
 plt.ylim(-4, 4)
 plt.title("zeroQ")
-# plt.savefig('zeroQ.png')
-# exit()
 
-print("Train Genrative data")
 
+##############################################################
+# Generative Fake Data Part
+##############################################################
+print("Train Generative data.....")
 im_shape = (2)
 toy_g = TOYGenerator(n_classes = 2, in_channel = 2, img_shape = im_shape)
 toy_g.train()
 toy_g = toy_g.cuda()
 criterion = nn.CrossEntropyLoss()
+
+
+##############################################################
+# Generator warm up without BNS loss
+##############################################################
+print("Generator warm up")
+optimizer = torch.optim.SGD(toy_g.parameters(), lr=0.001, momentum=0.9)
+# only train generator without BNS loss
+for _ in tqdm.tqdm(range(warm_up_epoch)):
+    FP_Model.zero_grad()
+    train_gaussian_noise =  np.random.normal(0, 1, (test_batch_size, 2))    
+    train_gaussian_label =  np.random.uniform(0, 1, test_batch_size) > 0.5
+    input_mean = torch.FloatTensor([0.0]).cuda()
+    input_std = torch.FloatTensor([1.0]).cuda()
+
+    input_data = Variable(FloatTensor(train_gaussian_noise))        
+    input_label = Variable(LongTensor(train_gaussian_label))
+
+    input_data = input_data.cuda()
+    input_label = input_label.cuda()
+
+    fake_data = toy_g(input_data, input_label)
+    fake_label = FP_Model(fake_data)
+    g_loss = criterion(fake_label, input_label)    
+
+    g_loss.backward()
+    optimizer.step()
+    
+
+
+##############################################################
+# Generator training
+##############################################################
+print("Train Generator")
 optimizer = torch.optim.SGD(toy_g.parameters(), lr=0.1, momentum=0.9)
 scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=(test_epoch//3))
-# optimizer = optim.Adam(toy_g.parameters(), lr = 0.01)
-# scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer,
-#                                                     min_lr=1e-4,
-#                                                     verbose=False,
-#                                                     patience=100)
-
-print("Generator warm up")
-
 
 FP_Model = FP_Model.eval()
 hooks, hook_handles, bn_stats = [], [], []
@@ -269,13 +298,13 @@ for hook in hooks:
 
 
 # set same iteration as zeroQ
-for _ in tqdm.tqdm(range(test_epoch * (test_data_size//test_batch_size))):    
+for _ in tqdm.tqdm(range(test_epoch * (test_data_size//test_batch_size))):
 
     FP_Model.zero_grad()
     optimizer.zero_grad()
 
-    gaussian_noise =  np.random.normal(0, 1, (test_batch_size, 2))    
-    gaussian_label =  np.random.uniform(0, 1, test_batch_size) > 0.5
+    train_gaussian_noise =  np.random.normal(0, 1, (test_batch_size, 2))    
+    train_gaussian_label =  np.random.uniform(0, 1, test_batch_size) > 0.5
     # randint is discrete uniform    
     # gaussian_label = np.random.randint(0, 1, size = test_batch_size)
     
@@ -283,8 +312,8 @@ for _ in tqdm.tqdm(range(test_epoch * (test_data_size//test_batch_size))):
     input_mean = torch.FloatTensor([0.0]).cuda()
     input_std = torch.FloatTensor([1.0]).cuda()
 
-    input_data = Variable(FloatTensor(gaussian_noise))        
-    input_label = Variable(LongTensor(gaussian_label))
+    input_data = Variable(FloatTensor(train_gaussian_noise))        
+    input_label = Variable(LongTensor(train_gaussian_label))
 
     input_data = input_data.cuda()
     input_label = input_label.cuda()
@@ -322,35 +351,24 @@ for _ in tqdm.tqdm(range(test_epoch * (test_data_size//test_batch_size))):
     scheduler.step(total_loss.item())
 
 
-# # test toy_g
-# # gaussian_noisex = truncnorm(a = -4, b = 4).rvs(size=500)
-# # gaussian_noisey = truncnorm(a = -4, b = 4).rvs(size=500)
-# gaussian_noisex =  np.random.normal(0, 1, 500)
-# gaussian_noisey =  np.random.normal(0, 1, 500)
-# gaussian_input_data = list(zip(gaussian_noisex, gaussian_noisey))
-# gaussian_label =  np.random.uniform(0, 1, 500) > 0.5
 
-gaussian_noise =  np.random.normal(0, 1, (test_data_size, 2))    
-gaussian_label =  np.random.uniform(0, 1, test_data_size) > 0.5
-# gaussian_label = np.random.randint(0, 1, size = test_data_size)  
+##############################################################
+# Inference Generator with test_gaussian dataset
+##############################################################
 toy_g.eval()
-test_inputs = FloatTensor(gaussian_noise)
-test_labels = FloatTensor(gaussian_label)
+test_inputs = FloatTensor(test_gaussian_noise)
+test_labels = FloatTensor(test_gaussian_label)
 
 fake_data_list = []
 for idx, test_d in enumerate(test_inputs):
-
     test_input = test_d.unsqueeze(0).cuda()
     test_label = test_labels[idx].unsqueeze(0).cuda()
-    fake_data = toy_g(test_input, test_label.long())
-    # print(fake_data.tolist()[0])
+    fake_data = toy_g(test_input, test_label.long())    
     fake_data_list.append(fake_data.tolist()[0])
 
-print(fake_data_list)
 fake_x, fake_y = zip(*fake_data_list)
-# plt.figure()
 plt.subplot(2, 2, 4)
-plt.scatter(list(fake_x), list(fake_y), s = 50, c = gaussian_label, alpha = .5)
+plt.scatter(list(fake_x), list(fake_y), s = 50, c = test_gaussian_label, alpha = .5)
 plt.xlim(-4, 4)
 plt.ylim(-4, 4)
 plt.title("Fake data")
