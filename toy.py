@@ -20,8 +20,8 @@ import random
 # the training setting
 test_data_size = 500
 test_batch_size = 50
-warm_up_epoch = 10
-test_epoch = 500
+test_epoch = 200
+test_iter = 50
 
 def own_loss(A, B):
     """
@@ -84,7 +84,7 @@ FloatTensor = torch.cuda.FloatTensor
 LongTensor = torch.cuda.LongTensor
 
 criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.SGD(FP_Model.parameters(), lr = 0.01, weight_decay=0.0001, momentum = 0.9)
+optimizer = torch.optim.SGD(FP_Model.parameters(), lr = 0.001, weight_decay=0.0001, momentum = 0.9)
 scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=(test_epoch//3))
 # train FP model first
 toy_dataset = data.TensorDataset(FloatTensor(GTdata), FloatTensor(label))
@@ -167,13 +167,19 @@ for idx, (input_data, input_label) in enumerate(toy_dataloader):
     input_data.requires_grad = True    
     FP_Model.zero_grad()
     crit = nn.CrossEntropyLoss().cuda()
-    optimizer = torch.optim.SGD([input_data], lr=0.1, momentum=0.9)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=(test_epoch//3))
-    
+    # optimizer = torch.optim.SGD([input_data], lr=0.001, momentum=0.9)
+    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=(test_epoch//3))
+    optimizer = optim.Adam([input_data], lr=0.005)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer,
+                                                     min_lr=1e-5,
+                                                     verbose=False,
+                                                     patience=100)
     input_mean = torch.FloatTensor([0.0]).cuda()
     input_std = torch.FloatTensor([1.0]).cuda()
 
-    for _ in tqdm.tqdm(range(test_epoch)):
+    # make total data num same as generator
+    # total is test_epoch * iter * batch
+    for _ in tqdm.tqdm(range(test_epoch*test_iter)):
 
         FP_Model.zero_grad()
         optimizer.zero_grad()
@@ -237,40 +243,14 @@ toy_g = toy_g.cuda()
 criterion = nn.CrossEntropyLoss()
 
 
-##############################################################
-# Generator warm up without BNS loss
-##############################################################
-print("Generator warm up")
-optimizer = torch.optim.SGD(toy_g.parameters(), lr=0.001, momentum=0.9)
-# only train generator without BNS loss
-for _ in tqdm.tqdm(range(warm_up_epoch)):
-    FP_Model.zero_grad()
-    train_gaussian_noise =  np.random.normal(0, 1, (test_batch_size, 2))    
-    train_gaussian_label =  np.random.uniform(0, 1, test_batch_size) > 0.5
-    input_mean = torch.FloatTensor([0.0]).cuda()
-    input_std = torch.FloatTensor([1.0]).cuda()
-
-    input_data = Variable(FloatTensor(train_gaussian_noise))        
-    input_label = Variable(LongTensor(train_gaussian_label))
-
-    input_data = input_data.cuda()
-    input_label = input_label.cuda()
-
-    fake_data = toy_g(input_data, input_label)
-    fake_label = FP_Model(fake_data)
-    g_loss = criterion(fake_label, input_label)    
-
-    g_loss.backward()
-    optimizer.step()
-    
-
 
 ##############################################################
 # Generator training
 ##############################################################
 print("Train Generator")
-optimizer = torch.optim.SGD(toy_g.parameters(), lr=0.1, momentum=0.9)
-scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=(test_epoch//3))
+optimizer = torch.optim.Adam(toy_g.parameters(), lr=1e-3)
+# down 3 times
+scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=(100))
 
 FP_Model = FP_Model.eval()
 hooks, hook_handles, bn_stats = [], [], []
@@ -296,59 +276,54 @@ assert len(hooks) == len(bn_stats)
 for hook in hooks:
     hook.clear()
 
-
+criterion = nn.CrossEntropyLoss()
 # set same iteration as zeroQ
-for _ in tqdm.tqdm(range(test_epoch * (test_data_size//test_batch_size))):
+for epoch in range(test_epoch):
+# for _ in tqdm.tqdm(range(test_epoch * (test_data_size//test_batch_size))):
+    pbar = tqdm.trange(test_iter)      
+    for _ in pbar:
+        input_mean = torch.FloatTensor([0.0]).cuda()
+        input_std = torch.FloatTensor([1.0]).cuda()
 
-    FP_Model.zero_grad()
-    optimizer.zero_grad()
 
-    train_gaussian_noise =  np.random.normal(0, 1, (test_batch_size, 2))    
-    train_gaussian_label =  np.random.uniform(0, 1, test_batch_size) > 0.5
-    # randint is discrete uniform    
-    # gaussian_label = np.random.randint(0, 1, size = test_batch_size)
-    
+        FP_Model.zero_grad()
+        optimizer.zero_grad()
 
-    input_mean = torch.FloatTensor([0.0]).cuda()
-    input_std = torch.FloatTensor([1.0]).cuda()
+        train_gaussian_noise =  np.random.normal(0, 1, (test_batch_size, 2))        
+        train_gaussian_label =  np.random.randint(0, 2, test_batch_size)    
+        input_data = Variable(FloatTensor(train_gaussian_noise)).cuda()
+        input_label = Variable(LongTensor(train_gaussian_label)).cuda()
 
-    input_data = Variable(FloatTensor(train_gaussian_noise))        
-    input_label = Variable(LongTensor(train_gaussian_label))
+        fake_data = toy_g(input_data, input_label)
+        fake_label = FP_Model(fake_data)
 
-    input_data = input_data.cuda()
-    input_label = input_label.cuda()
+        mean_loss = 0
+        std_loss = 0
+        # compute the loss according to the BatchNorm statistics and the statistics of intermediate output
+        for cnt, (bn_stat, hook) in enumerate(zip(bn_stats, hooks)):            
+            tmp_output = hook.outputs
+            bn_mean, bn_std = bn_stat[0], bn_stat[1]
+            # get batch's norm 
+            tmp_mean = torch.mean(tmp_output , dim = 0)
+            tmp_std = torch.sqrt(torch.var(tmp_output, dim = 0) + eps)
+            mean_loss += own_loss(bn_mean, tmp_mean)
+            std_loss += own_loss(bn_std, tmp_std)
 
-    fake_data = toy_g(input_data, input_label)
+        
+        tmp_mean = torch.mean(input_data, dim = -1)
+        tmp_std = torch.sqrt(torch.var(input_data, dim = -1) + eps)
 
-    fake_label = FP_Model(fake_data)
+        mean_loss +=  own_loss(input_mean, tmp_mean)
+        std_loss += own_loss(input_std, tmp_std)
 
-    mean_loss = 0
-    std_loss = 0
+        g_loss = criterion(fake_label, input_label)
 
-    # compute the loss according to the BatchNorm statistics and the statistics of intermediate output
-    for cnt, (bn_stat, hook) in enumerate(zip(bn_stats, hooks)):            
-        tmp_output = hook.outputs
-        bn_mean, bn_std = bn_stat[0], bn_stat[1]
-        # get batch's norm 
-        tmp_mean = torch.mean(tmp_output , dim = 0)
-        tmp_std = torch.sqrt(torch.var(tmp_output, dim = 0) + eps)
-        mean_loss += own_loss(bn_mean, tmp_mean)
-        std_loss += own_loss(bn_std, tmp_std)
+        total_loss = g_loss + 0.1 * (mean_loss + std_loss)
 
-    
-    tmp_mean = torch.mean(input_data, dim = -1)
-    tmp_std = torch.sqrt(torch.var(input_data, dim = -1) + eps)
+        total_loss.backward()
+        optimizer.step()
 
-    mean_loss +=  own_loss(input_mean, tmp_mean)
-    std_loss += own_loss(input_std, tmp_std)
-
-    g_loss = criterion(fake_label, input_label)
-
-    total_loss = g_loss + 1 * (mean_loss + std_loss)
-
-    total_loss.backward()
-    optimizer.step()
-    scheduler.step(total_loss.item())
+    scheduler.step()
 
 
 
