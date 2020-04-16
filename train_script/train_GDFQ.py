@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from models.generator import CLSGenerator
 from train_script.utils import *
 from utils.val import validation
+from utils.quantize_model import freeze_bn
 
 def adjust_learning_rate(optimizer, epoch, base_lr):    
     lr = base_lr * (0.1 ** (epoch // 100))
@@ -28,8 +29,10 @@ def train_GDFQ(fp_model, q_model, val_dataloder, criterion,
 
 	# handle with gpu and batchs
 	n_gpu = torch.cuda.device_count()
+	# because author may use multi-gpu training
+	# and try to fit the origin fp model batch
 	# larger iteration per epoch follow the rule https://arxiv.org/abs/1706.02677v1
-	total_batch = n_gpu * batch_size	
+	total_batch = n_gpu * batch_size
 	default_iter = 200
 	base_batch_size = 256
 	# prevent out of bound
@@ -43,27 +46,23 @@ def train_GDFQ(fp_model, q_model, val_dataloder, criterion,
 	FloatTensor = torch.cuda.FloatTensor
 	LongTensor = torch.cuda.LongTensor
 
-
 	
 
 	generator = CLSGenerator(num_class, 100, img_size)
 	
 	fp_model.cuda()
-	# freeze fp model
+	# freeze fp model weight
 	for param in fp_model.parameters():
 		param.requires_grad = False
-	
-
-	fp_model = nn.DataParallel(fp_model).cuda()
-	generator = nn.DataParallel(generator).cuda()
-	q_model = nn.DataParallel(q_model).cuda()
-
-
 
 	generator.train()
 	# generator.cuda()
 	q_model.train()
 	# q_model.cuda()
+
+	fp_model = nn.DataParallel(fp_model).cuda()
+	generator = nn.DataParallel(generator).cuda()
+	q_model = nn.DataParallel(q_model).cuda()
 
 	g_optimizer = torch.optim.Adam(generator.parameters(), lr=g_lr)
 	q_optimizer = torch.optim.SGD(q_model.parameters(), lr=q_lr, momentum=0.9, weight_decay = 1e-4)	
@@ -174,6 +173,7 @@ def train_GDFQ(fp_model, q_model, val_dataloder, criterion,
 
 			print(" ==>Current Top1: {}, Top5: {}\n".format(q_top_1, q_top_5))
 
-
+		torch.save(q_model.state_dict(), "q_model.pkl")
+		torch.save(generator.state_dict(), "generator.pkl")
 
 	return q_model

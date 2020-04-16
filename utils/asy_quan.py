@@ -17,11 +17,11 @@ class RoundWithGradient(Function):
     def backward(ctx, g):
         return g 
 
-def AsyQuan(x, k, x_min, x_max):
+def AsyQuan(x, k, x_min, x_max, gradient = True):
 	
 	
 	# prevent 0 in denominator
-	scale = (2**(k-1)) / torch.clamp((x_max - x_min), min=1e-10)
+	scale = (2**k-1) / torch.clamp((x_max - x_min), min=1e-10)
 	
 	zero_point = scale * x_min
 	
@@ -32,9 +32,12 @@ def AsyQuan(x, k, x_min, x_max):
 	# quan
 	x = scale * x - zero_point
 	
-	# x = RoundWithGradient.apply(x)
-	x = x.round()
-	
+	if gradient:
+		x = RoundWithGradient.apply(x)
+
+	else:
+		x = x.round()
+		
 	limit = (2**(k-1))
 	# x = torch.where(x < (-limit), torch.tensor([-limit]).float().cuda(), x)
 	# x = torch.where(x > (limit-1), torch.tensor([limit-1]).float().cuda(), x)	
@@ -153,8 +156,8 @@ class AsyQActivation(nn.Module):
 			self.x_min = self.x_min * (1-self.momentum) + x_min * self.momentum
 			self.x_max = self.x_max * (1-self.momentum) + x_max * self.momentum		
 
-		
-		x = AsyQuan(x, self.a_bit, self.x_min, self.x_max)	
+		# it seems that using gradient in activation will lead to nan loss of q model
+		x = AsyQuan(x, self.a_bit, self.x_min, self.x_max, gradient=False)	
 
 
 		return x

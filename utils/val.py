@@ -24,8 +24,8 @@ def accuracy(output, target, topk=(1,)):
 
 def validation(val_loader, model, criterion):
 
-    print("Evaluation Results ........")
-    
+
+
 	model.cuda()
 	model.eval()
 	top1 = AverageMeter('Acc@1', ':6.2f')
