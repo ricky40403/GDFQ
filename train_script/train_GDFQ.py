@@ -49,20 +49,20 @@ def train_GDFQ(fp_model, q_model, val_dataloder, criterion,
 	
 
 	generator = ResNetGenerator(num_classes=num_class, dim_z=100, img_size=img_size)
-
+	
 
 	fp_model.cuda()
 	# freeze fp model weight
 	for param in fp_model.parameters():
 		param.requires_grad = False
-
+	fp_model = freeze_bn(fp_model)	
 
 	generator.train()
 	# generator.cuda()
 	q_model.train()
 	# q_model.cuda()
 
-	fp_model = nn.DataParallel(fp_model).cuda()
+	# fp_model = nn.DataParallel(fp_model).cuda()
 	generator = nn.DataParallel(generator).cuda()
 	q_model = nn.DataParallel(q_model).cuda()
 
@@ -97,8 +97,8 @@ def train_GDFQ(fp_model, q_model, val_dataloder, criterion,
 
 	for epoch in range(total_epoch):
 		# both decay by 0.1 every 100 epoch
-		adjust_learning_rate(g_optimizer, epoch, q_lr)
-		adjust_learning_rate(q_optimizer, epoch, g_lr)
+		adjust_learning_rate(g_optimizer, epoch, g_lr)
+		adjust_learning_rate(q_optimizer, epoch, q_lr)
 
 		pbar = tqdm.trange(train_iter)
 		for _ in pbar:
@@ -114,9 +114,7 @@ def train_GDFQ(fp_model, q_model, val_dataloder, criterion,
 			input_data = Variable(FloatTensor(train_gaussian_noise)).cuda()
 			input_label = Variable(LongTensor(train_gaussian_label)).cuda()
 
-
-			fake_data = generator(input_data, input_label)
-			
+			fake_data = generator(input_data, input_label)			
 			fake_label = fp_model(fake_data)
 
 			# BNS loss

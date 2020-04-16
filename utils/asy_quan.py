@@ -34,20 +34,19 @@ def AsyQuan(x, k, x_min, x_max, gradient = True):
 	
 	if gradient:
 		x = RoundWithGradient.apply(x)
-
 	else:
 		x = x.round()
 		
 	limit = (2**(k-1))
-	# x = torch.where(x < (-limit), torch.tensor([-limit]).float().cuda(), x)
-	# x = torch.where(x > (limit-1), torch.tensor([limit-1]).float().cuda(), x)	
+	# # x = torch.where(x < (-limit), torch.tensor([-limit]).float().cuda(), x)
+	# # x = torch.where(x > (limit-1), torch.tensor([limit-1]).float().cuda(), x)	
 	
 	# clamp seems to have backward gradient
 	# https://github.com/pytorch/pytorch/blob/53fe804322640653d2dddaed394838b868ce9a26/torch/autograd/_functions/pointwise.py#L95
 	x = torch.clamp(x, -limit, limit-1)
 	# dequan
 	x = (x + zero_point) / scale
-	# print("x in asy 4: {}".format(x[0][0][0][0]))
+	
 
 	return x
 
@@ -157,7 +156,8 @@ class AsyQActivation(nn.Module):
 			self.x_max = self.x_max * (1-self.momentum) + x_max * self.momentum		
 
 		# it seems that using gradient in activation will lead to nan loss of q model
-		x = AsyQuan(x, self.a_bit, self.x_min, self.x_max, gradient=False)	
+		x = AsyQuan(x, self.a_bit, self.x_min.data, self.x_max.data, gradient=False)	
+		
 
 
 		return x

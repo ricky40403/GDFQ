@@ -49,11 +49,11 @@ def freeze_bn(model):
 	if isinstance(model, torch.nn.modules.BatchNorm2d):
 		model.affine = False
 		model.track_running_stats = False
-		model.eval()
+		# model.eval()
 	if isinstance(model, CBN):
 		model.affine = False
 		model.track_running_stats = False
-		model.eval()
+		# model.eval()
 
 	elif isinstance(model, nn.Sequential):
 		mods = []

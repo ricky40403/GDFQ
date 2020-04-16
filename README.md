@@ -22,6 +22,7 @@ But I can not reproduce the beautiful generated data in the paper. :sweat_smile:
 ## Training
 
 * The floating model using torchvision, so the architecture must fit the torchvisoin model name.  
+You may reference https://pytorch.org/docs/stable/torchvision/models.html
 * Batch size set the default batch size as 256, and it will follow the related rules of the learning rate, iteration, batch size.  
 Accurate, Large Minibatch SGD: Training ImageNet in 1 Hour: <https://arxiv.org/abs/1706.02677v1>   
 
@@ -43,7 +44,7 @@ python train.py -a vgg16_bn -qa 8 -qw 8 -qb 8
   
 ### Todo
 - [ ] add zeroQ traning.  
-- [ ] Check the effect of the BNS and kl(if have time).   
+- [ ] Check the effect of the BNS and KL.   
 
 ### Note
 This had not tested the performance yet.   
