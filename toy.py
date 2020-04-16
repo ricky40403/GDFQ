@@ -19,7 +19,7 @@ import random
 ##############################################################
 # the training setting
 test_data_size = 500
-test_batch_size = 50
+test_batch_size = 8
 test_epoch = 200
 test_iter = 50
 
