@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 import torch.nn.functional as F
-from models.generator import CLSGenerator
+from models.generator import ResNetGenerator
 from train_script.utils import *
 from utils.val import validation
 from utils.quantize_model import freeze_bn
@@ -21,26 +21,26 @@ def get_lr(optimizer):
 		return param_group['lr']
 
 def train_GDFQ(fp_model, q_model, val_dataloder, criterion, 
-			   num_class=1000, batch_size = 256, img_size = 224,
+			   num_class=1000, batch_size = 32, img_size = 224,
 			   warmup_epoch = 4, total_epoch = 400, iter_per_epoch = 200,
 			   q_lr = 1e-6, g_lr = 1e-3,
 			   beta=0.1, gamma=1):
 
 
-	# handle with gpu and batchs
-	n_gpu = torch.cuda.device_count()
-	# because author may use multi-gpu training
-	# and try to fit the origin fp model batch
-	# larger iteration per epoch follow the rule https://arxiv.org/abs/1706.02677v1
-	total_batch = n_gpu * batch_size
+	# # handle with gpu and batchs
+	# n_gpu = torch.cuda.device_count()
+	# # because author may use multi-gpu training
+	# # and try to fit the origin fp model batch
+	# # larger iteration per epoch follow the rule https://arxiv.org/abs/1706.02677v1
+	# total_batch = n_gpu * batch_size
 	default_iter = 200
-	base_batch_size = 256
-	# prevent out of bound
-	base_batch_size = max(base_batch_size, total_batch)
-	scale_factor = (base_batch_size//total_batch)
-	train_iter = default_iter * scale_factor
-	g_lr = g_lr/scale_factor
-	q_lr = q_lr/scale_factor
+	# base_batch_size = 256
+	# # prevent out of bound
+	# base_batch_size = max(base_batch_size, total_batch)
+	# scale_factor = (base_batch_size//total_batch)
+	train_iter = default_iter# * scale_factor
+	# g_lr = g_lr/scale_factor
+	# q_lr = q_lr/scale_factor
 
 
 	FloatTensor = torch.cuda.FloatTensor
@@ -48,12 +48,14 @@ def train_GDFQ(fp_model, q_model, val_dataloder, criterion,
 
 	
 
-	generator = CLSGenerator(num_class, 100, img_size)
-	
+	generator = ResNetGenerator(num_classes=num_class, dim_z=100, img_size=img_size)
+
+
 	fp_model.cuda()
 	# freeze fp model weight
 	for param in fp_model.parameters():
 		param.requires_grad = False
+
 
 	generator.train()
 	# generator.cuda()
@@ -112,7 +114,9 @@ def train_GDFQ(fp_model, q_model, val_dataloder, criterion,
 			input_data = Variable(FloatTensor(train_gaussian_noise)).cuda()
 			input_label = Variable(LongTensor(train_gaussian_label)).cuda()
 
+
 			fake_data = generator(input_data, input_label)
+			
 			fake_label = fp_model(fake_data)
 
 			# BNS loss

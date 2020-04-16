@@ -9,7 +9,6 @@ The Origin Paper : <https://arxiv.org/pdf/2003.03603.pdf>
 ****
 
 
----
 ## Toy Result
 
 <img src=toy.png width=100%>  

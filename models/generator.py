@@ -3,8 +3,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-
-
+import torch.nn.functional as F
+from models.resblock import Block
 
 
 import numpy as np
@@ -100,3 +100,50 @@ class CLSGenerator(nn.Module):
         out = out.view(out.shape[0], 128, self.init_size, self.init_size)
         img = self.conv_blocks(out)        
         return img
+
+
+class ResNetGenerator(nn.Module):
+    """
+    Ref from https://github.com/crcrpar/pytorch.sngan_projection/blob/master/models/generators/resnet.py
+    using resnet generator to handle resnet
+    """
+
+    def __init__(self, num_features=64, dim_z=100, img_size=224,
+                 activation=F.relu, num_classes=1000):
+        super(ResNetGenerator, self).__init__()
+        self.num_features = num_features
+        self.dim_z = dim_z
+        self.init_size = img_size // 32
+        self.activation = activation
+        self.num_classes = num_classes        
+
+        self.l1 = nn.Linear(dim_z, 16 * num_features * self.init_size ** 2)
+
+        self.block2 = Block(num_features * 16, num_features * 16,
+                            activation=activation, upsample=True,
+                            num_classes=num_classes)
+        self.block3 = Block(num_features * 16, num_features * 8,
+                            activation=activation, upsample=True,
+                            num_classes=num_classes)
+        self.block4 = Block(num_features * 8, num_features * 4,
+                            activation=activation, upsample=True,
+                            num_classes=num_classes)
+        self.block5 = Block(num_features * 4, num_features * 2,
+                            activation=activation, upsample=True,
+                            num_classes=num_classes)
+        self.block6 = Block(num_features * 2, num_features,
+                            activation=activation, upsample=True,
+                            num_classes=num_classes)
+        self.b7 = nn.BatchNorm2d(num_features)
+        self.conv7 = nn.Conv2d(num_features, 3, 1, 1)
+
+    def _initialize(self):
+        init.xavier_uniform_(self.l1.weight.tensor)
+        init.xavier_uniform_(self.conv7.weight.tensor)
+
+    def forward(self, z, y=None, **kwargs):
+        h = self.l1(z).view(z.size(0), -1, self.init_size, self.init_size)        
+        for i in [2, 3, 4, 5, 6]:
+            h = getattr(self, 'block{}'.format(i))(h, y, **kwargs)
+        h = self.activation(self.b7(h))
+        return torch.tanh(self.conv7(h))

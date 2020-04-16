@@ -26,32 +26,32 @@ def validation(val_loader, model, criterion):
 
 
 
-	model.cuda()
-	model.eval()
-	top1 = AverageMeter('Acc@1', ':6.2f')
-	top5 = AverageMeter('Acc@5', ':6.2f')
+    model.cuda()
+    model.eval()
+    top1 = AverageMeter('Acc@1', ':6.2f')
+    top5 = AverageMeter('Acc@5', ':6.2f')
 
-	pbar = tqdm.tqdm(val_loader)
+    pbar = tqdm.tqdm(val_loader)
 
-	with torch.no_grad():
-		for i, (images, traget) in enumerate(pbar):
+    with torch.no_grad():
+        for i, (images, traget) in enumerate(pbar):
 
-			images = images.cuda()
-			target = traget.cuda()
+            images = images.cuda()
+            target = traget.cuda()            
 
-			out = model(images)
-			loss = criterion(out, target)
+            out = model(images)
+            loss = criterion(out, target)
 
-			# measure accuracy and record loss
-			acc1, acc5 = accuracy(out, target, topk=(1, 5))
+            # measure accuracy and record loss
+            acc1, acc5 = accuracy(out, target, topk=(1, 5))
 
-			top1.update(acc1[0], images.size(0))
-			top5.update(acc5[0], images.size(0))
+            top1.update(acc1[0], images.size(0))
+            top5.update(acc5[0], images.size(0))
 
 
-	print("Top 1: {}".format(top1.avg))
-	print("Top 5: {}".format(top5.avg))
-	return top1.avg, top5.avg
+    print("Top 1: {}".format(top1.avg))
+    print("Top 5: {}".format(top5.avg))
+    return top1.avg, top5.avg
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
