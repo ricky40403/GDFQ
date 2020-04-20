@@ -1,6 +1,7 @@
 
 import tqdm
 import torch
+import torch.nn as nn
 
 
 
@@ -22,10 +23,11 @@ def accuracy(output, target, topk=(1,)):
 
 
 
-def validation(val_loader, model, criterion):
+def validation(val_loader, model):
 
 
-
+    criterion = nn.CrossEntropyLoss().cuda()
+    
     model.cuda()
     model.eval()
     top1 = AverageMeter('Acc@1', ':6.2f')
