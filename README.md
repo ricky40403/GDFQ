@@ -82,6 +82,7 @@ python train.py -a vgg16_bn -qa 8 -qw 8 -qb 8
 ### Issue
 1. Question about the fixed batch norm of the Qmodel. (will not affect the training? or it needs to quantize the batch norm first?)  
 2. The toy experiment can not generate the beautiful output, maybe something wrong. (Any advice or PR is welcome)  
+3. The acc is wired when using 4 bit in zeroQ when using difference model source.
   
 ### Todo
 - [x] add zeroQ traning.  
